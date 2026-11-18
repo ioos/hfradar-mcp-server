@@ -3,17 +3,26 @@
 This standalone server exposes four tools backed by the HFRNet FastAPI service.
 It runs separately from the GCOOS hfradmin and radial archive servers.
 
-Run the FastAPI service from the `hfrnet-web` project, then start this MCP server:
+The server uses the deployed API at
+[cloud.data.ioos.us/hfrnet](https://cloud.data.ioos.us/hfrnet/) by default:
+
+```bash
+uv run test-mcp-hfrnet
+```
+
+`HFR_API_BASE_URL` defaults to `https://cloud.data.ioos.us/hfrnet`. Override it
+in your MCP client's server environment to use another deployment. The API
+address includes any proxy prefix, such as `/hfrnet`.
+The API uses its own storage credentials; this MCP client calls its HTTP routes.
+
+For local development, run FastAPI from the `hfrnet-web` project and override
+the endpoint:
 
 ```bash
 HFR_API_BASE_URL=http://localhost:5000 uv run test-mcp-hfrnet
 ```
 
-`HFR_API_BASE_URL` defaults to `http://localhost:5000`. In the local HFRNet
-development stack, port 3000 serves the web app and port 5000 serves FastAPI.
-Set the variable in your MCP client's server environment when launching from a
-client. The API address can include a proxy prefix, such as `https://host/api`.
-The API uses its own storage credentials; this MCP client calls its HTTP routes.
+In that local stack, port 5000 serves FastAPI and port 3000 serves the web app.
 
 Example questions:
 

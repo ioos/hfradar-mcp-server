@@ -77,14 +77,16 @@ Other S3 roots must use `<SITE>/<YYYY-MM>/<file>.ruv` paths. Access requires
 
 ## HFRNet totals datasets (separate server)
 
-Run the HFRNet FastAPI service, then start its dedicated MCP server:
+The dedicated HFRNet MCP server uses the deployed API at
+[cloud.data.ioos.us/hfrnet](https://cloud.data.ioos.us/hfrnet/) by default:
 
 ```bash
-HFR_API_BASE_URL=http://localhost:5000 uv run test-mcp-hfrnet
+uv run test-mcp-hfrnet
 ```
 
-Port 5000 serves FastAPI in the local `hfrnet-web` stack; port 3000 serves its
-web app. This server offers `get_dataset_options`, `discover_datasets`,
+Set `HFR_API_BASE_URL` to use another deployment or a local service, for example
+`HFR_API_BASE_URL=http://localhost:5000 uv run test-mcp-hfrnet`.
+This server offers `get_dataset_options`, `discover_datasets`,
 `get_dataset_metadata`, and `get_latest_time`. Searches default to the latest
 available period. These tools return file availability, links, and metadata.
 

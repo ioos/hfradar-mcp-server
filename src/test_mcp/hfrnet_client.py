@@ -9,7 +9,7 @@ from urllib.parse import urlencode, urlsplit
 from mcp.server.mcpserver.exceptions import ToolError
 
 
-DEFAULT_API_URL = "http://localhost:5000"
+DEFAULT_API_URL = "https://cloud.data.ioos.us/hfrnet"
 
 
 class DatasetAPI:
