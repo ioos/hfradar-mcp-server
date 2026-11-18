@@ -1,6 +1,8 @@
 import io
 import json
 import os
+import subprocess
+import sys
 import unittest
 from unittest.mock import patch
 from urllib.error import HTTPError, URLError
@@ -8,8 +10,8 @@ from urllib.parse import parse_qs, urlsplit
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-from test_mcp import server
-from test_mcp.api_client import DEFAULT_API_URL, DatasetAPI
+from test_mcp import hfrnet_server as server
+from test_mcp.hfrnet_client import DEFAULT_API_URL, DatasetAPI
 
 
 class Response(io.BytesIO):
@@ -137,8 +139,8 @@ class APITests(unittest.TestCase):
 class MCPIntegrationTests(unittest.IsolatedAsyncioTestCase):
     async def test_tools_are_registered_and_callable_through_mcp(self):
         tool_names = {tool.name for tool in await server.mcp.list_tools()}
-        self.assertTrue({"list_sites", "list_files", "get_radials", "get_dataset_options",
-                         "discover_datasets", "get_dataset_metadata", "get_latest_time"} <= tool_names)
+        self.assertEqual({"get_dataset_options", "discover_datasets",
+                          "get_dataset_metadata", "get_latest_time"}, tool_names)
         with patch.object(server, "api", DatasetAPI("http://localhost:5000")):
             for name, arguments, payload in (
                 ("get_dataset_options", {}, {"products": []}),
@@ -167,6 +169,48 @@ class MCPIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 with self.subTest(tool=name, arguments=arguments), self.assertRaises(ToolError):
                     await server.mcp.call_tool(name, arguments)
             fetch.assert_not_called()
+
+
+class ServerIsolationTests(unittest.TestCase):
+    def check_import(self, code, **environment):
+        result = subprocess.run(
+            [sys.executable, "-c", code], env={**os.environ, **environment},
+            capture_output=True, text=True, timeout=15,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_hfrnet_does_not_load_gcoos_clients_or_settings(self):
+        self.check_import(
+            "import sys; from test_mcp import hfrnet_server; "
+            "assert not {'test_mcp.server', 'test_mcp.archive_server', "
+            "'test_mcp.client', 'test_mcp.storage'} & sys.modules.keys()",
+            HFR_API_BASE_URL="http://localhost:5000", HFR_API_URL="invalid",
+            HFR_BASE_URL="invalid", HFR_DATA_PATH="invalid",
+        )
+
+    def test_gcoos_servers_do_not_load_hfrnet_client_or_settings(self):
+        for module, environment in (
+            ("server", {"HFR_API_URL": "https://hfr.example/api/v1"}),
+            ("archive_server", {"HFR_API_URL": "invalid", "HFR_DATA_PATH": "https://archive.example/data/"}),
+        ):
+            with self.subTest(module=module):
+                self.check_import(
+                    f"import sys; from test_mcp import {module}; "
+                    "assert 'test_mcp.hfrnet_server' not in sys.modules; "
+                    "assert 'test_mcp.hfrnet_client' not in sys.modules",
+                    HFR_API_BASE_URL="invalid", **environment,
+                )
+
+    def test_default_package_exports_still_refer_to_hfradmin(self):
+        from test_mcp import main, mcp, server as hfradmin
+
+        self.assertIs(main, hfradmin.main)
+        self.assertIs(mcp, hfradmin.mcp)
+
+    def test_hfrnet_entry_point_runs_its_own_server(self):
+        with patch.object(server.mcp, "run") as run:
+            server.main()
+        run.assert_called_once_with()
 
 
 if __name__ == "__main__":

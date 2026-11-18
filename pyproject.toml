@@ -1,7 +1,7 @@
 [project]
 name = "test-mcp"
 version = "0.1.0"
-description = "MCP server for GCOOS HTTP and HFRNet S3 radial data"
+description = "MCP server for the GCOOS HF radar network (hfradmin API v1)"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -11,6 +11,8 @@ dependencies = [
 
 [project.scripts]
 test-mcp = "test_mcp:main"
+test-mcp-archive = "test_mcp.archive_server:main"
+test-mcp-hfrnet = "test_mcp.hfrnet_server:main"
 
 [build-system]
 requires = ["uv_build>=0.13.8,<0.14.0"]

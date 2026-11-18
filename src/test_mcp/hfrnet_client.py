@@ -1,4 +1,4 @@
-"""HTTP client for the HFRNet totals API, independent of radial archives."""
+"""HTTP client used by the standalone HFRNet totals MCP server."""
 
 import json
 import os

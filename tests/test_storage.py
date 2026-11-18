@@ -9,7 +9,7 @@ from botocore.response import StreamingBody
 from botocore.stub import Stubber
 from mcp.server.mcpserver.exceptions import ToolError
 
-from test_mcp import server
+from test_mcp import archive_server as server
 from test_mcp.storage import DEFAULT_SOURCE, HTTPArchive, S3Archive, archive_from_env
 
 
