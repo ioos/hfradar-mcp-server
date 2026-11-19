@@ -43,7 +43,7 @@ Transport is stdio. Authentication, if added, is a change to `HfrApi.headers()` 
 | `get_history(kind, site, start, end, status, limit)` | `outages`, `annotations` or `settings_changes` | `/outages`, `/annotations`, `/sites/{site}/settings-history` |
 | `list_radial_files(site, start, end, pattern, limit)` | Coverage and gaps, newest first | `/sites/{site}/radials` |
 | `get_radials(site, filename, time, pattern, max_rows)` | Header and vectors of one hourly file (latest by default) | `/radials/{filename}`, `/radials/{filename}/vectors` |
-| `get_surface_currents(source, lat, lon, hours)` | Total-current sources, or one cell's time series | `/totals`, `/totals/{source}/cell` |
+| `get_surface_currents(source, lat, lon, hours, max_points)` | Total-current sources, or one cell's time series | `/totals`, `/totals/{source}/cell` |
 
 Times are ISO 8601 UTC (`2026-11-17T13:00Z` or `2026-11-17`); the server sends them to the
 API as `2026-11-17T13:00:00Z`. Radial files reach the database in batches every few hours,

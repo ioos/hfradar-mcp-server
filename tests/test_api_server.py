@@ -148,7 +148,7 @@ class DiagnosticsTests(unittest.TestCase):
         snf, trip = result["series"]
         self.assertEqual(snf["rows_total"], 24)
         self.assertLessEqual(len(snf["rows"]), 6)
-        self.assertEqual(snf["rows"][-1], rows[-1])  # newest row is always kept
+        self.assertEqual(snf["rows"][-1], rows[-1])
         self.assertEqual(snf["summary"]["lowest"], -140)
         self.assertEqual(snf["summary"]["highest"], -114)
         self.assertEqual(snf["summary"]["latest_median"], -115)

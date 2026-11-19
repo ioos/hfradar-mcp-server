@@ -6,6 +6,7 @@ static catalogs, and thinning of long series so they stay out of the model's con
 """
 
 import json
+import math
 import re
 import statistics
 from datetime import datetime, timedelta, timezone
@@ -32,22 +33,26 @@ Tools for the GCOOS HF radar network (hfradmin API v1). Times are UTC, ISO 8601.
 api = api_from_env()
 mcp = MCPServer("gcoos-hfr", instructions=INSTRUCTIONS)
 
-STATIC_TTL = 3600  # seconds to cache /rules and /diagnostics/catalog
+STATIC_TTL = 3600
 SITE = re.compile(r"[A-Za-z0-9]{4}")
+SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+FIELD_CODE = re.compile(r"[^\s,&#?%/\\]{1,40}")
+MAX_HOURS = 720
 DEFAULT_SPAN = {"hour": timedelta(hours=24), "day": timedelta(days=30), "raw": timedelta(hours=6)}
 VELOCITY_COLUMNS = {"velo", "velocity", "velocity_cm_s"}
 
 Pattern = Literal["ideal", "measured"]
 
 
-# --- helpers -----------------------------------------------------------------------
-
 def _parse(value: Any, name: str) -> datetime:
     try:
         t = datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
-    except (ValueError, TypeError):
-        raise ToolError(f"Bad {name} {value!r}; use ISO 8601 UTC like 2026-11-17T13:00Z or 2026-11-17")
-    return t.astimezone(timezone.utc) if t.tzinfo else t.replace(tzinfo=timezone.utc)
+        t = t.astimezone(timezone.utc) if t.tzinfo else t.replace(tzinfo=timezone.utc)
+    except (ValueError, TypeError, OverflowError):
+        raise ToolError(f"Bad {name} {str(value)[:40]!r}; use ISO 8601 UTC like 2026-11-17T13:00Z or 2026-11-17")
+    if not 1970 <= t.year <= 2100:
+        raise ToolError(f"{name} {str(value)[:40]!r} is out of range; use a year between 1970 and 2100")
+    return t
 
 
 def _fmt(t: datetime) -> str:
@@ -62,6 +67,13 @@ def _site(site: str) -> str:
     if not SITE.fullmatch(site or ""):
         raise ToolError(f"Site {site!r} is not a four-character site code like 'HBSP'; see network_overview")
     return site.upper()
+
+
+def _segment(value: str | None, name: str) -> str:
+    """A value that becomes one URL path segment: plain name characters only, no dot-segments."""
+    if not SEGMENT.fullmatch(value or ""):
+        raise ToolError(f"Bad {name} {str(value)[:40]!r}: use letters, digits, '.', '_' or '-' only")
+    return value  # type: ignore[return-value]
 
 
 def _limit(n: int) -> int:
@@ -79,6 +91,35 @@ def _rows(data: Any, *keys: str) -> list | None:
 
 def _first(item: Any, keys: tuple[str, ...]) -> Any:
     return next((item[k] for k in keys if isinstance(item, dict) and item.get(k)), None)
+
+
+def _indices(n: int, k: int) -> list[int]:
+    """About k evenly spaced indices out of n, always including the last one."""
+    if k <= 0:
+        return []
+    if n <= k:
+        return list(range(n))
+    idx = list(range(0, n, -(-n // k)))
+    return idx if idx[-1] == n - 1 else idx + [n - 1]
+
+
+def _thin_currents(data: Any, max_points: int) -> Any:
+    """Thin the parallel arrays of a totals cell series and add a summary."""
+    if not isinstance(data, dict) or not isinstance(data.get("times"), list):
+        return data
+    n = len(data["times"])
+    idx = _indices(n, max_points)
+    speeds = [
+        math.hypot(a, b) for a, b in zip(data.get("u") or [], data.get("v") or [])
+        if isinstance(a, (int, float)) and isinstance(b, (int, float))
+    ]
+    out = {k: ([x[i] for i in idx] if isinstance(x, list) and len(x) == n else x) for k, x in data.items()}
+    out["summary"] = {
+        "points_total": n, "points_returned": len(idx), "valid_points": len(speeds),
+        "mean_speed": round(sum(speeds) / len(speeds), 3) if speeds else None,
+        "max_speed": round(max(speeds), 3) if speeds else None,
+    }
+    return out
 
 
 def _thin(rows: list, n: int, keep_last: bool = False) -> list:
@@ -123,8 +164,6 @@ def _summarize_series(series: dict) -> dict:
     return out
 
 
-# --- network and site --------------------------------------------------------------
-
 @mcp.tool()
 def network_overview() -> dict:
     """Start here: freshness of the data plus the state of every site.
@@ -147,8 +186,6 @@ def get_site(site: str) -> dict:
     """
     return api.get("sites", _site(site))
 
-
-# --- diagnosis ---------------------------------------------------------------------
 
 @mcp.tool()
 def get_findings(
@@ -182,8 +219,6 @@ def get_rules() -> Any:
     """
     return api.get("rules", cache_ttl=STATIC_TTL)
 
-
-# --- measurements ------------------------------------------------------------------
 
 @mcp.tool()
 def list_diagnostic_fields(search: str | None = None) -> Any:
@@ -224,6 +259,8 @@ def get_diagnostics(
     codes = [f.strip() for f in fields if f.strip()]
     if not 1 <= len(codes) <= 8:
         raise ToolError("Give 1 to 8 field codes (see list_diagnostic_fields)")
+    if bad := next((c for c in codes if not FIELD_CODE.fullmatch(c)), None):
+        raise ToolError(f"Bad field code {bad[:40]!r}; take codes from list_diagnostic_fields")
     hi = _parse(end, "end") if end else datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
     lo = _parse(start, "start") if start else hi - DEFAULT_SPAN[resolution]
     data = api.get(
@@ -243,8 +280,6 @@ def get_diagnostics(
         })
     return {**{k: v for k, v in data.items() if k != "series"}, "series": series}
 
-
-# --- history -----------------------------------------------------------------------
 
 @mcp.tool()
 def get_history(
@@ -273,8 +308,6 @@ def get_history(
         return api.get("outages", status=status, site=code, start=lo, end=hi, limit=_limit(limit))
     return api.get("annotations", site=code, start=lo, end=hi, limit=_limit(limit))
 
-
-# --- radials -----------------------------------------------------------------------
 
 @mcp.tool()
 def list_radial_files(
@@ -311,7 +344,7 @@ def _pick_file(site: str, when: str | None, pattern: str) -> str:
     name = _first(item, ("filename", "name", "file"))
     if not name:
         raise ToolError(f"Unexpected radial file entry from the API (keys: {', '.join(map(str, item))})")
-    return str(name)
+    return _segment(str(name), "file name from the API")
 
 
 @mcp.tool()
@@ -330,7 +363,7 @@ def get_radials(
     when a velocity column is present. CODAR convention: positive velocity means flow toward
     the radar site.
     """
-    name = filename or _pick_file(_site(site), time, pattern)
+    name = _segment(filename, "filename") if filename else _pick_file(_site(site), time, pattern)
     header = api.get("radials", name)
     vectors = api.get("radials", name, "vectors")
     if not isinstance(vectors, dict) or "columns" not in vectors or "rows" not in vectors:
@@ -352,29 +385,31 @@ def get_radials(
     return out
 
 
-# --- total currents ----------------------------------------------------------------
-
 @mcp.tool()
 def get_surface_currents(
     source: str | None = None,
     lat: float | None = None,
     lon: float | None = None,
     hours: int = 24,
+    max_points: int = 48,
 ) -> Any:
     """Combined (total) surface currents.
 
     Without `source`: the available sources (use the `key`, e.g. hfrnet_6km) with their
     freshness and bounds. With source, lat and lon: the nearest grid cell over the last
-    `hours` as parallel arrays (times, u, v, hdop, nrad). A 404 "No totals cell near that
+    `hours` (1 to 720) as parallel arrays (times, u, v, hdop, nrad), thinned to about
+    max_points (0 = summary only) with a `summary` of mean and max speed. A 404 "No totals cell near that
     position" means the point has no coverage (land, or outside the radar footprint).
     """
     if source is None:
         return api.get("totals")
+    source = _segment(source, "source")
     if lat is None or lon is None:
         raise ToolError("lat and lon are required with a source")
     if not (-90 <= lat <= 90 and -180 <= lon <= 180):
         raise ToolError("lat must be within -90..90 and lon within -180..180")
-    return api.get("totals", source, "cell", lat=lat, lon=lon, hours=max(1, int(hours)))
+    data = api.get("totals", source, "cell", lat=lat, lon=lon, hours=max(1, min(int(hours), MAX_HOURS)))
+    return _thin_currents(data, max_points)
 
 
 def main() -> None:
